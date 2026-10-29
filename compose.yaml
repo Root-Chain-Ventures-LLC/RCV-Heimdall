@@ -1,0 +1,50 @@
+# Heimdall 0.5.1: the app and its PostgreSQL database, from the published image.
+#   cp .env.example .env                  then fill in the two secrets (see the comments in .env.example)
+#   docker compose up -d
+# Open BASE_URL (default http://localhost:8080). The first start prints a setup token in the log
+# (docker compose logs heimdall) unless HEIMDALL_SETUP_TOKEN is set.
+name: heimdall
+
+services:
+  heimdall:
+    image: ${HEIMDALL_IMAGE:-ghcr.io/root-chain-ventures-llc/heimdall:0.5.1}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://heimdall:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/heimdall?sslmode=disable
+      HEIMDALL_SECRET_KEY: ${HEIMDALL_SECRET_KEY:?set HEIMDALL_SECRET_KEY in .env}
+      BASE_URL: ${BASE_URL:-http://localhost:8080}
+      HEIMDALL_BIND: 0.0.0.0:8080
+      HEIMDALL_SETUP_TOKEN: ${HEIMDALL_SETUP_TOKEN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-}
+    ports:
+      # Plain HTTP: loopback only by default. Put a TLS reverse proxy in front, or set
+      # HEIMDALL_PUBLISH_ADDR to one private address.
+      - "${HEIMDALL_PUBLISH_ADDR:-127.0.0.1}:8080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  db:
+    image: postgres:17-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: heimdall
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: heimdall
+    volumes:
+      - heimdall-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U heimdall -d heimdall"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  heimdall-db:
