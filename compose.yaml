@@ -1,4 +1,4 @@
-# Heimdall 0.5.2: the app and its PostgreSQL database, from the published image.
+# Heimdall 0.5.3: the app and its PostgreSQL database, from the published image.
 #   cp .env.example .env                  then fill in the two secrets (see the comments in .env.example)
 #   docker compose up -d
 # Open BASE_URL (default http://localhost:8080). The first start prints a setup token in the log
@@ -7,7 +7,7 @@ name: heimdall
 
 services:
   heimdall:
-    image: ${HEIMDALL_IMAGE:-ghcr.io/root-chain-ventures-llc/heimdall:0.5.2}
+    image: ${HEIMDALL_IMAGE:-ghcr.io/root-chain-ventures-llc/heimdall:0.5.3}
     restart: unless-stopped
     depends_on:
       db:
