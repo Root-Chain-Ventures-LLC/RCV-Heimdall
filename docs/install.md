@@ -86,6 +86,36 @@ curl -fsS http://127.0.0.1:8080/api/health
 answers `{"status":"ok","version":"<version>","commit":"...","built_at":"..."}`. The same version
 is printed by `docker compose run --rm --no-deps heimdall --version`.
 
+## Single sign-on (optional)
+
+Heimdall can sign people in with any OpenID Connect provider and give each person a role from their groups there. Local
+password sign-in keeps working; the first administrator is always local.
+
+1. At the provider, register Heimdall as a web application (authorization code flow) with the redirect URI
+   `<BASE_URL>/api/auth/oidc/callback` (Settings > Sign-in shows it, built from `BASE_URL`). Note the client ID and create a client secret.
+2. Make the provider put the person's groups into the ID token (a `groups` claim; the claim name is configurable).
+3. In Heimdall, Settings > Sign-in: enter the issuer URL exactly as the provider publishes it, the client ID and secret, and under
+   "Groups to roles" the groups for admin, operator and viewer (one per line). Press Test to read the provider's discovery
+   document, save, then switch Single sign-on on. Someone in none of the listed groups cannot sign in; the highest role wins.
+4. Keep "Allow password sign-in" on while you try it. Turned off, only administrators can use a password, at
+   `<BASE_URL>/sign-in?local=1`; that is the way in if the provider is down or misconfigured.
+
+`HEIMDALL_SSO_SESSION_TTL` (for example `8h`, from `5m` to `24h`, default 8 h) sets how long a single sign-on session lasts.
+
+**Microsoft Entra ID.** Issuer `https://login.microsoftonline.com/<tenant-id>/v2.0`. Under Token configuration add a groups claim
+for security groups, as Group ID, and limit it to groups assigned to the application, which avoids group overage (a token with
+too many groups carries a link instead of the list, and Heimdall does not follow it). Put the group object IDs in the three lists.
+Entra sends no `email_verified` claim: to link an existing local account by email, tick "Trust the email address when the provider
+sends no email_verified claim" under More options. New accounts need nothing.
+
+An existing account that has a password, or is an administrator, is not linked by email alone: open Settings > Users, choose
+"Allow SSO sign-in for this account" on it, and its owner is linked at their next verified single sign-on. Until then they see "An
+administrator must allow single sign-on for this account first." (Accounts with no password that are not administrators link
+without this step.) An allowed local administrator keeps the administrator role whatever their groups say.
+
+People who sign in this way are created on their first sign-in (switch it off to allow only people who already have an account),
+have no Heimdall password, and are marked SSO under Settings > Users. Their role follows their groups at every sign-in.
+
 ## TLS in front
 
 Put a reverse proxy that terminates TLS in front of Heimdall and keep the app on loopback. Two

@@ -1,4 +1,4 @@
-# Heimdall 0.5.3: the app and its PostgreSQL database, from the published image.
+# Heimdall 0.6.0: the app and its PostgreSQL database, from the published image.
 #   cp .env.example .env                  then fill in the two secrets (see the comments in .env.example)
 #   docker compose up -d
 # Open BASE_URL (default http://localhost:8080). The first start prints a setup token in the log
@@ -7,7 +7,7 @@ name: heimdall
 
 services:
   heimdall:
-    image: ${HEIMDALL_IMAGE:-ghcr.io/root-chain-ventures-llc/heimdall:0.5.3}
+    image: ${HEIMDALL_IMAGE:-ghcr.io/root-chain-ventures-llc/heimdall:0.6.0}
     restart: unless-stopped
     depends_on:
       db:
@@ -19,6 +19,7 @@ services:
       HEIMDALL_BIND: 0.0.0.0:8080
       HEIMDALL_SETUP_TOKEN: ${HEIMDALL_SETUP_TOKEN:-}
       TRUST_PROXY: ${TRUST_PROXY:-}
+      HEIMDALL_SSO_SESSION_TTL: ${HEIMDALL_SSO_SESSION_TTL:-}
     ports:
       # Plain HTTP: loopback only by default. Put a TLS reverse proxy in front, or set
       # HEIMDALL_PUBLISH_ADDR to one private address.
