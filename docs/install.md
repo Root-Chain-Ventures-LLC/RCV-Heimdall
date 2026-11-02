@@ -77,6 +77,14 @@ administrator's name, email and password. The token is only asked for while no a
 exists. Administrators then add operators and viewers under Settings, and add sites, switches,
 SNMP profiles and integrations.
 
+**Connecting Seshat.** Under Settings, Integrations, enter the Seshat address and an API token.
+Ask a Seshat administrator for a read-only **`tracker:read`** token scoped to your cutover sites.
+It opens exactly the Device Tracker routes Heimdall calls (lookup, devices, device ports, port
+history and poll-now). An `operator` token also works but can change Seshat settings that Heimdall
+never touches, so prefer `tracker:read`. Seshat allows one poll-now per device every 60 seconds for
+an API token; a pre-check that hits the limit waits and retries once, then reads the table Seshat
+already has. The Test button's "Tracker read access" line tells you whether the token is enough.
+
 Quick checks from the Docker host:
 
 ```sh
