@@ -78,12 +78,24 @@ exists. Administrators then add operators and viewers under Settings, and add si
 SNMP profiles and integrations.
 
 **Connecting Seshat.** Under Settings, Integrations, enter the Seshat address and an API token.
-Ask a Seshat administrator for a read-only **`tracker:read`** token scoped to your cutover sites.
-It opens exactly the Device Tracker routes Heimdall calls (lookup, devices, device ports, port
-history and poll-now). An `operator` token also works but can change Seshat settings that Heimdall
-never touches, so prefer `tracker:read`. Seshat allows one poll-now per device every 60 seconds for
-an API token; a pre-check that hits the limit waits and retries once, then reads the table Seshat
-already has. The Test button's "Tracker read access" line tells you whether the token is enough.
+With Seshat 0.5 or newer, ask a Seshat administrator to register Heimdall as an **integration client**
+(Settings, Integrations in Seshat) with the capabilities `tracker.read`, `tracker.bulk`, `tracker.poll`
+and `events.subscribe` (and `edge.relay.tcp`, read intent only, and `edge.snmp.read` if Heimdall will
+reach a remote site through a Seshat Edge; the relay is documented separately), scoped to your
+cutover sites, and to issue a token for it. That token cannot change anything in Seshat. A legacy
+**`tracker:read`** token still works, without event subscriptions (Heimdall then uses the manual route
+under Live events) and, on a Seshat older than 0.5, with one lookup per MAC instead of a batch. An
+`operator` token also works but can change Seshat settings that Heimdall never touches, so avoid it.
+Seshat allows one poll-now per device every 60 seconds for an API token; a pre-check that hits the
+limit waits and retries once, then reads the table Seshat already has.
+
+The Test button reports whether the token can read the Device Tracker, what the token can do (batch
+lookups, poll now, event subscription; a missing one is a warning with a sentence, not a failure)
+and whether Seshat serves the data formats Heimdall is built for. After the token works, **Event
+subscription** (Settings, Integrations, Seshat) has a **Subscribe to events** button: Heimdall creates
+its own subscription in Seshat, and after any downtime catches up from Seshat's event log. Seshat must
+be able to reach Heimdall's `BASE_URL`; it needs `https`, or an administrator must allow `http` for the
+client. No Seshat route or webhook has to be built by hand.
 
 Quick checks from the Docker host:
 
@@ -93,6 +105,128 @@ curl -fsS http://127.0.0.1:8080/api/health
 
 answers `{"status":"ok","version":"<version>","commit":"...","built_at":"..."}`. The same version
 is printed by `docker compose run --rm --no-deps heimdall --version`.
+
+## Starting a cutover
+
+A cutover (an outage event) is started with a name and a date: **Cutovers, New cutover**. The time zone is
+your browser's; the window times are optional. Nothing else is needed to begin, and everything else is
+added as the information arrives:
+
+- **Site.** A cutover with no site shows "Site: not set" and a **Set site** button. Importing the plan, running
+  the pre-check and going live need the site (they read that site's switches), and the page says so. A site,
+  once set, stays.
+- **Notes.** The cutover log has a note box: Enter posts, Shift+Enter starts a new line, and your name and the
+  time are saved with the note.
+- **Contacts and links.** The crew lead, the customer contact, the contractor, the NOC on duty; the ticket, the
+  map, the change record. Links are `http` or `https` only. Operators and administrators edit; viewers read.
+- **Meetings.** One pre-cutover and one post-cutover meeting, each with a time, a place or join link, attendees,
+  an agenda, notes and decisions, and a status (scheduled, held, cancelled). The suggested time is the working
+  day before the window (after, for the post meeting) at 10:00. **Calendar file (.ics)** downloads the meeting;
+  open it in your calendar or attach it to a mail. Every change to the meeting raises the file's sequence number,
+  so a calendar treats a new download as an update. Heimdall sends no invitations by itself; if an administrator
+  has connected Microsoft 365 (Settings, Integrations), a meeting also has **Send invitation through Microsoft
+  365**, off by default, and an optional group to invite. Saving then sends, updates or cancels a calendar
+  invitation, and the meeting shows its state, the Teams link and **Retry now**. People who got the invitation do
+  not need the .ics. See `docs/integrations/microsoft-365.md`.
+- The next meeting shows on the cutover page and in the cutovers list. The closing report, with its Excel and PDF
+  exports, lists both meetings with their notes and decisions, the contacts and the links.
+
+## Reaching remote sites through a Seshat Edge
+
+Some switches and the ACS sit at sites this server has no route to. If a Seshat Edge (Seshat 0.5.0 or newer) is installed
+there, Heimdall can read them through it. The edge dials out only, so the site accepts no inbound connection. Everything
+Heimdall sends through an edge is **read only**: SNMP reads (get and walk), SSH show commands and ACS GET requests. It
+is off until you set a target's transport to "via Seshat Edge"; every target is read directly until then.
+
+### What to set up in Seshat
+
+1. **An integration client for Heimdall** (Seshat, Settings, Integrations). It holds these capabilities: `tracker.read`,
+   `tracker.bulk`, `tracker.poll`, `edge.relay.tcp` and `edge.snmp.read`. Its scope names the cutover sites **and the
+   edges** Heimdall may use (a client with no edges in its scope reaches none). Issue one token. **Heimdall uses one
+   token for all of it**: the Seshat token already entered under Settings, Integrations. Seshat's integration model gives a client
+   one set of capabilities and does not recommend a second token for the relay, so Heimdall has no separate relay token
+   field. A legacy `tracker:read` token does not carry the two edge capabilities.
+2. **On each edge** (Seshat, Edges, the edge's drawer):
+   - **Relay**: mode `read` (Heimdall declares read intent only; `read+write` is not needed) and an **allow-list** of
+     `host:port` entries for what Heimdall may reach: the SSH port of each switch (`192.0.2.11:22`, or a network such as
+     `192.0.2.0/24:22`) and, for an ACS, its port (`192.0.2.30:7557`). An empty list means the relay is off. A host
+     *name* needs an entry pinned to a network (`name@192.0.2.0/24:22`); an address needs none.
+   - **SNMP reads**: switched on, with the **networks** the reads may reach in the SNMP allow-list (`192.0.2.0/24`). Heimdall
+     seals a one-time SNMP credential to the edge's key for every request, and Seshat only uses a sealed credential
+     inside that allow-list (or the edge operator's ceiling). If the switch's SNMP port is not 161, the entry must name
+     it (`192.0.2.0/24:1161`). The switch's **management address in Heimdall must be an IP address**: the edge reads by
+     address, not by name.
+   - Optional but recommended: the edge-local ceilings in the edge's environment (`SESHAT_EDGE_RELAY_CEILING`,
+     `SESHAT_EDGE_RELAY_MAX_MODE=read`, `SESHAT_EDGE_SNMP_CEILING`), so even a compromised Seshat server cannot widen
+     what the edge reaches.
+3. **Read the edge's seal key fingerprint** from its status page (or the Edges page) once, so you can pin it in Heimdall.
+
+### What to set in Heimdall
+
+- **Switches**: Settings, Switches, edit the switch. Next to the management address, **How Heimdall reaches this switch**:
+  *Via a Seshat Edge*, and the **edge id** as Seshat shows it. Seshat gives a scoped integration token no way to list
+  edges, so the id is typed; **Test edge** asks the edge itself (it proves the id, the scope, that the edge is connected
+  and that the token holds `edge.snmp.read`) and shows the fingerprint of the edge's seal key. Compare it with the edge's
+  own page and press **Pin this key**: Heimdall then refuses to seal a credential to any other key, which matters
+  because the key is handed out by the Seshat server. The transport applies to the SNMP collector, the pre-check's
+  MAC-table reader and the SSH fallback (SSH uses the switch's SSH profile as before; its host key is pinned inside the
+  stream, on the switch).
+- **ACS**: Settings, Integrations, ACS, the same field. If the address is `http://` (not `https://`), the form asks you
+  to tick **I understand the relay path can read this**; the API refuses to save without it, and the relay refuses to
+  open the stream. Prefer `https://`.
+- Nothing else changes: SNMP profiles, SSH profiles and the polling interval are the ones you already have.
+
+### While a cutover is live
+
+When a cutover goes live, Heimdall opens an **SNMP read window** on each edge its switches use (Seshat, `POST
+/api/edges/{id}/snmp/windows`): one read per switch per *minimum interval*, which is the polling interval (at least
+10 s, Seshat's floor), until the planned end plus 30 minutes (at most 8 hours; with no planned end, 2 hours, renewed
+while the cutover stays live). Outside a window Seshat allows one read a minute per switch. The window is not renewed
+after the cutover closes and lapses on its own. Each poll reads its OIDs in as few edge requests as the limit of 64 OIDs
+allows (the poll learns what it asked for last time and asks for all of it at once), and waits for its turn in the window.
+A switch with many watched ports therefore costs more than one request per poll; roughly six watched ports fit in one
+request.
+
+When something is wrong on the way, the reading goes **stale or unknown with the reason**, and Heimdall never marks a port
+down or a row failed because of it:
+
+| What you see | What it means |
+|---|---|
+| "The Seshat Edge ... is offline" | The edge has no connection to Seshat (`edge_offline`). Readings resume when it is back. |
+| "The relay is switched off" / "does not allow this target" | The edge's relay or SNMP allow-list does not cover the target (`relay_disabled`, `target_not_allowed`; the message names the rule). |
+| "SNMP reads are switched off" | The edge's SNMP reads are off (`snmp_disabled`). |
+| "cannot use the edge relay" / "scope does not include" | The Seshat token lacks the capability or the edge is outside its scope (`capability_missing`, `out_of_scope`). |
+| "is rate limiting the reads" | Over the window rate (`limit_exceeded`, with Retry-After). |
+| "The switch did not answer" via the edge | The device itself did not answer the edge (`snmp_timeout`); a v2c switch that does not know the community is silent too. |
+| "will not send a credential" | The edge's seal key is not the pinned one (`key_pin_mismatch`). Check the edge, then unpin and pin again. |
+
+### What is logged
+
+Every relayed TCP session (SSH, ACS) writes one line to Heimdall's audit log when it ends (edge, target, protocol, bytes
+in and out, duration, outcome), and one when it is refused. SNMP reads are **not** logged per poll: a line is written when
+their state changes (the first read works, a failure begins or changes, recovery) and a summary every 15 minutes while
+they run and when the cutover ends; the same lines go to the event log of the live cutovers at that site. Window opens,
+renewals and failures are logged. Payloads, SNMP values and credentials are never logged. Seshat audits the same traffic
+on its side (`edge.relay`, `edge.snmp.read`).
+
+### Exposure, and the threat model
+
+- **Read only is Heimdall's rule, Seshat enforces what it can.** The SNMP path is enforced at the edge: the request
+  schema has get, getnext, getbulk and walk and nothing else. The TCP relay is a byte stream: Seshat records the
+  declared intent (`read`) and the edge checks it against its mode, but neither can see inside. What keeps SSH and
+  HTTP read only is Heimdall: SSH runs only commands on the fixed per-vendor allow-list of read-only show commands, the ACS client
+  only sends GET. A stolen Seshat token can open only the targets in the edge's allow-list, within its limits, and every
+  use is audited by Seshat.
+- **SNMP v2c.** The community is sealed to the edge's key, so it never crosses the relay path in the clear and the
+  Seshat server cannot read it. From the edge to the switch it is v2c on the site's own network, as it would be with
+  a direct read. Prefer SNMPv3 where the switch supports it.
+- **SSH and https** run end to end through the stream: Seshat and the edge see ciphertext, and the credentials never
+  leave Heimdall. **Plain http** (an ACS without TLS) is plain text on the Seshat server and on the way to it, which
+  is why it needs the per-target acknowledgement.
+- **The seal key comes through the Seshat server**; a compromised server could offer its own. Pin the fingerprint.
+- **A compromised Seshat server** can allow any target the edge can reach unless the edge has a local ceiling; set one.
+- Heimdall keeps no write path to any device: there is no SNMP set, no configuration command and no ACS write in
+  any transport.
 
 ## Single sign-on (optional)
 
@@ -183,7 +317,9 @@ Never publish the plain HTTP port on an untrusted network.
 5. Check `curl -fsS http://127.0.0.1:8080/api/health` shows the new version.
 
 Migrations run when the new version starts and are not reversible. To go back, restore the backup
-you took in step 1 and start the old bundle.
+you took in step 1 and start the old bundle. Starting the old binary against the upgraded database
+(a binary-only rollback) works only for releases whose migrations are all expand-only; a release that
+ships a contract step (a migration whose first line is `-- contract:`) says so in its release notes.
 
 ## Backup and restore
 
